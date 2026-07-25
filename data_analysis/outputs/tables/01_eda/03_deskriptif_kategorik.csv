@@ -1,0 +1,33 @@
+﻿variabel,kategori,n,persen
+sex,Laki-laki,647,53.4
+sex,Perempuan,565,46.6
+jkn_class,3,642,53.0
+jkn_class,2,390,32.2
+jkn_class,1,180,14.9
+icu_admission_type,Emergensi,830,68.5
+icu_admission_type,Elektif,382,31.5
+diagnosis_category,Sepsis/Infeksi,261,21.5
+diagnosis_category,Respirasi,194,16.0
+diagnosis_category,Neurologi,190,15.7
+diagnosis_category,Kardiovaskular,184,15.2
+diagnosis_category,Gastrointestinal,158,13.0
+diagnosis_category,Trauma/Bedah,130,10.7
+diagnosis_category,Lainnya,95,7.8
+surgery_24h,tidak,682,56.3
+surgery_24h,elektif,285,23.5
+surgery_24h,emergensi,245,20.2
+mechanical_ventilation,1,691,57.0
+mechanical_ventilation,0,521,43.0
+vasopressor_inotrope,1,649,53.5
+vasopressor_inotrope,0,563,46.5
+transfusion_prc,0,879,72.5
+transfusion_prc,1,333,27.5
+oxygen_device,Ventilator,691,57.0
+oxygen_device,Nasal kanul,198,16.3
+oxygen_device,Udara ruangan,135,11.1
+oxygen_device,Simple mask,95,7.8
+oxygen_device,NRM,93,7.7
+gcs_note,tersedia,915,75.5
+gcs_note,tersedasi_seluruh_24_jam,297,24.5
+discharge_status,Hidup,937,77.3
+discharge_status,Meninggal,275,22.7

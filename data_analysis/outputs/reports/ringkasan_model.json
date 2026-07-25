@@ -1,0 +1,14 @@
+{
+  "model_terbaik": "Elastic Net LR",
+  "auc_nested_cv": 0.8316,
+  "auc_temporal": 0.858,
+  "target_auc": 0.75,
+  "target_tercapai": true,
+  "n_latih": 609,
+  "n_uji": 397,
+  "hyperparameter_terpilih": {
+    "model__C": 1.0,
+    "model__l1_ratio": 0.9
+  },
+  "durasi_detik": 84.0
+}

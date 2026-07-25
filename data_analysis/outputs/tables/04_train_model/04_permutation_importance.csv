@@ -1,0 +1,52 @@
+﻿model,variabel,penurunan_auc,sd
+Elastic Net LR,surgery_24h,0.16636,0.01588
+Elastic Net LR,sf_ratio_lowest,0.04411,0.01111
+Elastic Net LR,map_lowest,0.02533,0.01018
+Elastic Net LR,mechanical_ventilation,0.01401,0.00563
+Elastic Net LR,diagnosis_category,0.00637,0.0048
+Elastic Net LR,msofa_total,0.00391,0.00164
+Elastic Net LR,pre_icu_los_log1p,0.00215,0.00241
+Elastic Net LR,transfusion_prc,0.00195,0.00162
+Elastic Net LR,gcs_lowest,0.00074,0.00092
+Elastic Net LR,creatinine_highest,0.00011,0.00011
+Elastic Net LR,organ_support_count,0.0001,0.00099
+Elastic Net LR,icu_admission_type,1e-05,2e-05
+Elastic Net LR,vasopressor_inotrope,0.0,0.0
+Elastic Net LR,sex,0.0,0.0
+Elastic Net LR,age,-0.00016,0.00098
+Elastic Net LR,jkn_class,-0.00031,0.0006
+Elastic Net LR,gcs_unassessable,-0.00045,0.00085
+Random Forest,surgery_24h,0.1446,0.01375
+Random Forest,sf_ratio_lowest,0.02137,0.00849
+Random Forest,map_lowest,0.01288,0.00646
+Random Forest,mechanical_ventilation,0.01024,0.00446
+Random Forest,age,0.00507,0.0015
+Random Forest,msofa_total,0.00418,0.00535
+Random Forest,pre_icu_los_log1p,0.00284,0.00191
+Random Forest,icu_admission_type,0.00109,0.00161
+Random Forest,organ_support_count,0.00087,0.00168
+Random Forest,gcs_unassessable,0.00082,0.00143
+Random Forest,sex,0.00043,0.0007
+Random Forest,diagnosis_category,0.00038,0.00175
+Random Forest,transfusion_prc,0.0003,0.00053
+Random Forest,gcs_lowest,0.00016,0.00417
+Random Forest,jkn_class,-0.00076,0.00103
+Random Forest,vasopressor_inotrope,-0.00104,0.00107
+Random Forest,creatinine_highest,-0.00132,0.00188
+XGBoost,surgery_24h,0.16517,0.01411
+XGBoost,sf_ratio_lowest,0.05218,0.01051
+XGBoost,map_lowest,0.02666,0.00837
+XGBoost,mechanical_ventilation,0.02552,0.00647
+XGBoost,pre_icu_los_log1p,0.00999,0.00449
+XGBoost,msofa_total,0.00589,0.00519
+XGBoost,diagnosis_category,0.00511,0.00253
+XGBoost,age,0.00478,0.00201
+XGBoost,transfusion_prc,0.00398,0.00257
+XGBoost,organ_support_count,0.00181,0.00249
+XGBoost,gcs_unassessable,0.00169,0.00147
+XGBoost,sex,0.00081,0.00095
+XGBoost,icu_admission_type,0.00067,0.00079
+XGBoost,jkn_class,-0.00028,0.00181
+XGBoost,vasopressor_inotrope,-0.00064,0.00033
+XGBoost,creatinine_highest,-0.00073,0.00568
+XGBoost,gcs_lowest,-0.00348,0.005

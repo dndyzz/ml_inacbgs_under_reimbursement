@@ -1,0 +1,8 @@
+﻿tahap,n_keluar,n_sisa
+Episode terekstraksi dari SIM RS,0,1212
+Dikeluarkan: duplikat episode,12,1200
+Dikeluarkan: usia < 18 tahun atau tidak diketahui,2,1198
+Dikeluarkan: lama rawat ICU < 24 jam,137,1061
+Dikeluarkan: durasi pra-ICU tidak dapat dihitung (rujukan tanpa waktu masuk),35,1026
+Dikeluarkan: data tagihan/klaim tidak lengkap (outcome tidak dapat ditentukan),20,1006
+Kohort analisis akhir,0,1006

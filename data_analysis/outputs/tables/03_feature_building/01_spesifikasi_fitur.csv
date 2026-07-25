@@ -1,0 +1,18 @@
+﻿variabel,jenis,domain,perlakuan_preprocessing
+age,numeric,Demografi/administratif,MICE di dalam fold (+ standardisasi khusus elastic net)
+pre_icu_los_log1p,numeric,Demografi/administratif,MICE di dalam fold (+ standardisasi khusus elastic net)
+map_lowest,numeric,Disfungsi organ (mSOFA),MICE di dalam fold (+ standardisasi khusus elastic net)
+sf_ratio_lowest,numeric,Disfungsi organ (mSOFA),MICE di dalam fold (+ standardisasi khusus elastic net)
+gcs_lowest,numeric,Disfungsi organ (mSOFA),MICE di dalam fold (+ standardisasi khusus elastic net)
+creatinine_highest,numeric,Disfungsi organ (mSOFA),MICE di dalam fold (+ standardisasi khusus elastic net)
+msofa_total,numeric,Disfungsi organ (turunan),MICE di dalam fold (+ standardisasi khusus elastic net)
+organ_support_count,numeric,Intervensi/organ support (turunan),MICE di dalam fold (+ standardisasi khusus elastic net)
+jkn_class,ordinal,Demografi/administratif,"Imputasi median, urutan 1<2<3 dipertahankan"
+mechanical_ventilation,binary,Intervensi/organ support,Imputasi modus
+vasopressor_inotrope,binary,Intervensi/organ support,Imputasi modus
+transfusion_prc,binary,Intervensi/organ support,Imputasi modus
+gcs_unassessable,binary,Disfungsi organ (penanda sedasi),Imputasi modus
+sex,categorical,Demografi/administratif,Imputasi modus + one-hot encoding (drop kategori pertama)
+icu_admission_type,categorical,Demografi/administratif,Imputasi modus + one-hot encoding (drop kategori pertama)
+surgery_24h,categorical,Intervensi/organ support,Imputasi modus + one-hot encoding (drop kategori pertama)
+diagnosis_category,categorical,Kasus,Imputasi modus + one-hot encoding (drop kategori pertama)

@@ -1,0 +1,10 @@
+﻿variabel,n,rerata,simpang_baku,median,q1,q3,min,maks,p_shapiro,distribusi
+age,1212,53.32,16.12,53.0,42.0,64.0,18.0,150.0,0.0,tidak normal
+pre_icu_los_hours,1176,20.01,28.23,10.6,5.6,22.82,0.5,265.3,0.0,tidak normal
+map_lowest,1193,70.04,15.54,70.0,59.0,81.0,5.0,124.0,0.0646,normal
+sf_ratio_lowest,1103,305.81,95.89,312.9,235.36,380.0,87.0,476.19,0.0,tidak normal
+gcs_lowest,915,12.68,2.39,13.0,11.0,15.0,3.0,15.0,0.0,tidak normal
+creatinine_highest,1156,1.66,4.19,1.29,0.87,1.88,0.2,99.9,0.0,tidak normal
+icu_los_days,1212,4.75,4.29,3.5,1.78,6.35,0.11,33.93,0.0,tidak normal
+total_hospital_billing,1200,70415198.7,49413490.31,56942330.5,37082306.25,89625524.0,9051328.0,418796785.0,0.0,tidak normal
+inacbg_claim,1200,53866634.9,13067539.47,53134880.5,44258691.75,62210207.25,22196391.0,98891161.0,0.0018,tidak normal

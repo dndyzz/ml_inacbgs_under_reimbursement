@@ -1,0 +1,30 @@
+﻿variabel,definisi_operasional,skala_ukur,satuan,cara_ukur,domain
+episode_id,Identitas episode rawat inap (unit analisis),ID,-,SIM RS,Identitas
+patient_code,Kode pasien teranonimkan,ID,-,SIM RS,Identitas
+hospital_admission_datetime,Waktu masuk rumah sakit,Datetime,-,RME,Waktu
+icu_admission_datetime,Waktu masuk ICU (t0 jendela prediktor 24 jam),Datetime,-,RME,Waktu
+icu_discharge_datetime,Waktu keluar ICU,Datetime,-,RME,Waktu
+hospital_discharge_datetime,Waktu keluar rumah sakit,Datetime,-,RME,Waktu
+age,Usia saat masuk ICU,Rasio,tahun,RME,Demografi/administratif
+sex,Jenis kelamin biologis,Nominal,-,RME,Demografi/administratif
+jkn_class,Kelas rawat sesuai kepesertaan JKN,Ordinal,1/2/3,SIM RS,Demografi/administratif
+icu_admission_type,Jalur masuk ICU (elektif/emergensi),Nominal,-,RME,Demografi/administratif
+referral_flag,Status pasien rujukan,Nominal,0/1,RME,Demografi/administratif
+diagnosis_category,Kelompok diagnosis utama menurut sistem organ,Nominal,-,RME,Kasus
+mechanical_ventilation,Ventilasi mekanik invasif dalam 24 jam pertama,Nominal,0/1,RME/penagihan,Intervensi
+vasopressor_inotrope,Vasopresor dan/atau inotropik IV dalam 24 jam pertama,Nominal,0/1,RME/penagihan,Intervensi
+transfusion_prc,Transfusi PRC dalam 24 jam pertama,Nominal,0/1,Bank darah,Intervensi
+surgery_24h,Pembedahan dalam 24 jam pertama (tidak/elektif/emergensi),Nominal,-,RME kamar operasi,Intervensi
+map_lowest,MAP terendah dalam 24 jam pertama,Rasio,mmHg,Lembar observasi,Disfungsi organ
+spo2_lowest,SpO2 terendah dalam 24 jam pertama,Rasio,%,Lembar observasi,Disfungsi organ
+fio2_lowest,FiO2 pada saat SpO2 terendah,Rasio,fraksi,Lembar observasi,Disfungsi organ
+gcs_lowest,GCS terendah bebas sedasi dalam 24 jam pertama,Ordinal,3-15,Lembar observasi,Disfungsi organ
+gcs_note,Keterangan ketersediaan GCS (tersedia/tersedasi),Nominal,-,Lembar observasi,Disfungsi organ
+oxygen_device,Jenis alat oksigen (variabel pendamping estimasi FiO2),Nominal,-,Lembar observasi,Disfungsi organ
+creatinine_highest,Kreatinin serum tertinggi dalam 24 jam pertama,Rasio,mg/dL,Laboratorium,Disfungsi organ
+icu_los_days,Lama rawat ICU,Rasio,hari,RME,Deskriptif (bukan prediktor)
+post_icu_los_days,Lama rawat pasca-ICU,Rasio,hari,RME,Deskriptif (bukan prediktor)
+discharge_status,Status keluar (hidup/meninggal),Nominal,-,RME,Deskriptif (bukan prediktor)
+inacbg_severity_level,Severity level kode INA-CBGs,Ordinal,1/2/3,Data klaim,Deskriptif (bukan prediktor)
+total_hospital_billing,Total tagihan rumah sakit satu episode,Rasio,Rp,Sistem keuangan,Output
+inacbg_claim,Nilai klaim INA-CBGs final satu episode,Rasio,Rp,Data klaim BPJS,Output

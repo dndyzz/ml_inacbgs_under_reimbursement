@@ -1,0 +1,19 @@
+{
+  "xgboost": {
+    "model__colsample_bytree": 0.8,
+    "model__learning_rate": 0.05,
+    "model__max_depth": 3,
+    "model__min_child_weight": 5,
+    "model__n_estimators": 200,
+    "model__subsample": 0.8
+  },
+  "random_forest": {
+    "model__max_depth": 8,
+    "model__min_samples_leaf": 5,
+    "model__n_estimators": 600
+  },
+  "elastic_net_lr": {
+    "model__C": 1.0,
+    "model__l1_ratio": 0.9
+  }
+}

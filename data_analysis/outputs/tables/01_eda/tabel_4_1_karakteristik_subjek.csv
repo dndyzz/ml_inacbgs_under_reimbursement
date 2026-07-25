@@ -1,0 +1,31 @@
+﻿variabel,kategori,keseluruhan,tidak_under_reimbursement,under_reimbursement,p
+age,median (IQR),53.0 (42.0-64.0),53.0 (41.0-63.0),55.0 (43.0-64.0),"0,059"
+pre_icu_los_hours,median (IQR),10.6 (5.6-22.8),9.8 (5.6-20.8),11.1 (5.7-25.2),"0,080"
+map_lowest,median (IQR),70.0 (59.0-81.0),77.0 (67.0-86.0),64.0 (54.0-76.0),"<0,001"
+sf_ratio_lowest,median (IQR),312.5 (235.0-380.0),361.5 (303.1-422.7),267.1 (202.1-338.9),"<0,001"
+gcs_lowest,median (IQR),13.0 (11.0-15.0),14.0 (13.0-15.0),12.0 (10.0-14.0),"<0,001"
+creatinine_highest,median (IQR),1.3 (0.9-1.9),1.1 (0.8-1.6),1.5 (1.0-2.1),"<0,001"
+icu_los_days,median (IQR),3.5 (1.8-6.4),2.0 (1.2-3.2),5.8 (3.4-8.8),"<0,001"
+sex,Perempuan,552 (46.5%),249 (48.5%),303 (44.9%),"0,234"
+sex,Laki-laki,636 (53.5%),264 (51.5%),372 (55.1%),
+jkn_class,3,630 (53.0%),273 (53.2%),357 (52.9%),"0,745"
+jkn_class,2,381 (32.1%),168 (32.7%),213 (31.6%),
+jkn_class,1,177 (14.9%),72 (14.0%),105 (15.6%),
+icu_admission_type,Emergensi,811 (68.3%),348 (67.8%),463 (68.6%),"0,830"
+icu_admission_type,Elektif,377 (31.7%),165 (32.2%),212 (31.4%),
+diagnosis_category,Kardiovaskular,179 (15.1%),98 (19.1%),81 (12.0%),"<0,001"
+diagnosis_category,Respirasi,193 (16.2%),67 (13.1%),126 (18.7%),
+diagnosis_category,Neurologi,183 (15.4%),72 (14.0%),111 (16.4%),
+diagnosis_category,Gastrointestinal,157 (13.2%),69 (13.5%),88 (13.0%),
+diagnosis_category,Trauma/Bedah,128 (10.8%),69 (13.5%),59 (8.7%),
+diagnosis_category,Sepsis/Infeksi,257 (21.6%),102 (19.9%),155 (23.0%),
+diagnosis_category,Lainnya,91 (7.7%),36 (7.0%),55 (8.1%),
+surgery_24h,tidak,667 (56.1%),388 (75.6%),279 (41.3%),"<0,001"
+surgery_24h,elektif,281 (23.7%),102 (19.9%),179 (26.5%),
+surgery_24h,emergensi,240 (20.2%),23 (4.5%),217 (32.1%),
+mechanical_ventilation,1,676 (56.9%),196 (38.2%),480 (71.1%),"<0,001"
+mechanical_ventilation,0,512 (43.1%),317 (61.8%),195 (28.9%),
+vasopressor_inotrope,1,637 (53.6%),203 (39.6%),434 (64.3%),"<0,001"
+vasopressor_inotrope,0,551 (46.4%),310 (60.4%),241 (35.7%),
+transfusion_prc,0,862 (72.6%),395 (77.0%),467 (69.2%),"0,003"
+transfusion_prc,1,326 (27.4%),118 (23.0%),208 (30.8%),

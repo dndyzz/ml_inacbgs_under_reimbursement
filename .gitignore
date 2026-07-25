@@ -1,0 +1,30 @@
+# --- Python ---------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# --- Artefak berukuran besar ----------------------------------------------
+# Model hasil pelatihan bisa dibangun ulang dengan menjalankan pipeline 04
+data_analysis/outputs/models/*.joblib
+
+# --- Pengaturan lokal Claude Code -----------------------------------------
+.claude/settings.local.json
+
+# --- Berkas sementara Office & OS -----------------------------------------
+~$*.docx
+~$*.pptx
+~$*.xlsx
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# --- PENTING: data pasien nyata TIDAK BOLEH masuk repositori ---------------
+# Data dummy (icu_inacbg_raw.csv) sengaja tetap di-commit agar pipeline
+# dapat dijalankan orang lain. Data RSCM yang sebenarnya harus memakai pola
+# nama di bawah ini dan tidak pernah ikut ter-commit.
+data_analysis/data/**/*_REAL*.csv
+data_analysis/data/**/*_RSCM*.csv
+data_analysis/data/**/real/

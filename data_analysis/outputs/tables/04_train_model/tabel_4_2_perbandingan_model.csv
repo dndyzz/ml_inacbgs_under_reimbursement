@@ -1,0 +1,4 @@
+﻿model,auc_nested_cv,auc_validasi_temporal,pr_auc,sensitivitas,spesifisitas,f1,brier,calibration_intercept,calibration_slope,memenuhi_target_auc
+Elastic Net LR,0.832 ± 0.039,0.858,0.907,0.815,0.779,0.834,0.153,0.289,1.177,ya
+Random Forest,0.830 ± 0.038,0.852,0.904,0.708,0.864,0.789,0.159,0.217,1.539,ya
+XGBoost,0.820 ± 0.030,0.845,0.901,0.765,0.805,0.810,0.158,0.263,1.042,ya

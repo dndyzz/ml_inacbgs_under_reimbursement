@@ -1,0 +1,15 @@
+﻿variabel,n_hilang,persen_hilang,strategi
+gcs_lowest,264,26.24,MICE di dalam fold
+sf_ratio_lowest,90,8.95,MICE di dalam fold
+creatinine_highest,47,4.67,MICE di dalam fold
+map_lowest,19,1.89,MICE di dalam fold
+age,0,0.0,-
+sex,0,0.0,-
+mechanical_ventilation,0,0.0,-
+pre_icu_los_hours,0,0.0,-
+icu_admission_type,0,0.0,-
+jkn_class,0,0.0,-
+surgery_24h,0,0.0,-
+transfusion_prc,0,0.0,-
+vasopressor_inotrope,0,0.0,-
+diagnosis_category,0,0.0,-

@@ -1,0 +1,137 @@
+# =====================================================================
+# Konfigurasi tunggal untuk seluruh pipeline.
+# Semua pipeline membaca file ini; ubah di sini, bukan di dalam kode.
+# =====================================================================
+
+project:
+  name: icu-inacbg-under-reimbursement
+  seed: 42
+  # DUMMY = data sintetis. Ganti ke REAL saat data RSCM sudah tersedia
+  # (lihat CLAUDE.md: pipeline 00 dilewati, 01 langsung baca data/raw/).
+  data_mode: DUMMY
+
+paths:
+  data_raw: data/raw
+  data_interim: data/interim
+  data_processed: data/processed
+  figures: outputs/figures
+  tables: outputs/tables
+  models: outputs/models
+  reports: outputs/reports
+
+# ---------------------------------------------------------------------
+# Pipeline 00 - pembangkitan data dummy
+# ---------------------------------------------------------------------
+data_generation:
+  n_episodes: 1200
+  # Periode pengumpulan data sesuai proposal (Mei 2025 - Mei 2026)
+  study_start: "2025-05-01"
+  study_end: "2026-05-31"
+  output_file: icu_inacbg_raw.csv
+  dictionary_file: data_dictionary.csv
+  # Faktor skala tarif INA-CBGs; makin kecil -> makin banyak under-reimbursement.
+  # Dikalibrasi agar prevalensi mendekati target di bawah.
+  claim_scale: 0.82
+  target_prevalence: 0.57
+  # Proporsi baris "kotor" yang sengaja dibuat agar pipeline 02 teruji
+  dirty_fraction:
+    icu_los_lt_24h: 0.06        # kriteria eksklusi 1
+    missing_pre_icu_time: 0.03  # kriteria eksklusi 2 (pasien rujukan)
+    missing_financial: 0.02     # kriteria eksklusi 3
+    duplicate_rows: 0.01
+  # Proporsi missing value (mekanisme MAR, lihat generator.py)
+  missing_fraction:
+    gcs_lowest: 0.12            # tersedasi sepanjang 24 jam
+    sf_ratio_lowest: 0.08
+    creatinine_highest: 0.05
+    map_lowest: 0.02
+
+# ---------------------------------------------------------------------
+# Pipeline 01 - exploratory data analysis
+# ---------------------------------------------------------------------
+eda:
+  input_file: icu_inacbg_raw.csv
+  # Variabel numerik yang diprofilkan (histogram + ringkasan)
+  max_categories_plot: 12
+  currency_divisor: 1000000     # tampilkan rupiah dalam juta
+  currency_label: "Rp juta"
+
+# ---------------------------------------------------------------------
+# Pipeline 02 - preprocessing
+# ---------------------------------------------------------------------
+preprocessing:
+  input_file: icu_inacbg_raw.csv
+  output_file: analytic_cohort.csv
+  min_age: 18
+  min_icu_hours: 24
+  # Batas wajar variabel klinis; nilai di luar rentang -> dianggap salah input
+  plausible_ranges:
+    age: [18, 110]
+    map_lowest: [20, 140]
+    sf_ratio_lowest: [40, 500]
+    gcs_lowest: [3, 15]
+    creatinine_highest: [0.1, 20]
+    pre_icu_los_hours: [0, 2160]
+  outcome:
+    ratio_col: claim_to_billing_ratio
+    binary_col: under_reimbursement
+    continuous_col: log_claim_to_billing_ratio
+
+# ---------------------------------------------------------------------
+# Pipeline 03 - feature building
+# ---------------------------------------------------------------------
+feature_building:
+  input_file: analytic_cohort.csv
+  output_features: X_features.csv
+  output_target: y_target.csv
+  vif_threshold: 5.0
+  # Fitur turunan yang dihitung (lihat features.py untuk definisinya)
+  derived:
+    msofa_components: true      # skor komponen mSOFA (MAP, SF, GCS, kreatinin)
+    organ_support_count: true   # jumlah organ support 24 jam (0-3)
+    log_pre_icu: true           # log1p durasi pra-ICU (distribusi miring kanan)
+    gcs_unassessable_flag: true # penanda "tidak dapat dinilai karena sedasi"
+
+# ---------------------------------------------------------------------
+# Pipeline 04 - training, evaluasi, interpretabilitas
+# ---------------------------------------------------------------------
+training:
+  outer_folds: 5
+  inner_folds: 3
+  scoring: roc_auc
+  # Validasi internal-eksternal: pembagian temporal sesuai proposal
+  temporal_split_date: "2026-01-01"
+  auc_target: 0.75
+  n_jobs: -1
+  # Class weighting hanya diaktifkan bila kelas minoritas < ambang ini.
+  # Pada data seimbang, pembobotan justru merusak kalibrasi probabilitas.
+  class_weight_threshold: 0.35
+  models:
+    xgboost:
+      enabled: true
+      grid:
+        model__n_estimators: [200, 400]
+        model__max_depth: [3, 5]
+        model__learning_rate: [0.05, 0.1]
+        model__subsample: [0.8]
+        model__colsample_bytree: [0.8]
+        model__min_child_weight: [1, 5]
+    random_forest:
+      enabled: true
+      grid:
+        model__n_estimators: [300, 600]
+        model__max_depth: [null, 8]
+        model__min_samples_leaf: [1, 5]
+    elastic_net_lr:
+      enabled: true
+      grid:
+        model__C: [0.01, 0.1, 1.0, 10.0]
+        model__l1_ratio: [0.1, 0.5, 0.9]
+
+interpretability:
+  shap_max_display: 15
+  n_dependence_plots: 6
+  n_interaction_features: 8
+  # Subsampel untuk SHAP interaction (O(n * f^2), mahal bila n besar)
+  interaction_sample: 300
+  waterfall_cases: 2
