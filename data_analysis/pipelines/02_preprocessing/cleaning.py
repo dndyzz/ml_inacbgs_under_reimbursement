@@ -29,6 +29,23 @@ def build_derived_columns(df: pd.DataFrame) -> pd.DataFrame:
         df["icu_discharge_datetime"] - df["icu_admission_datetime"]
     ).dt.total_seconds() / 3600
 
+    # Data mart memetakan seluruh bab neoplasma ke hemato-onkologi; neoplasma
+    # jinak dikembalikan ke sistem organ lokasinya (definisi operasional)
+    if "diagnosis_icd10" in df:
+        df["diagnosis_category_it"] = df["diagnosis_category"]
+        df["diagnosis_category"] = recategorize_diagnosis(df["diagnosis_icd10"],
+                                                          df["diagnosis_category"])
+
+    # GCS total kosong karena V tak dapat dinilai (terintubasi, TIDAK tersedasi):
+    # V diturunkan dari E dan M (Meredith dkk., J Trauma 1998;44:839-44).
+    # Pasien tersedasi tetap hilang -> ditangani flag gcs_unassessable + MICE.
+    if {"gcs_e", "gcs_m", "gcs_v"} <= set(df):
+        v_est = (-0.3756 + 0.5713 * df["gcs_m"] + 0.4233 * df["gcs_e"]).clip(1, 5)
+        fill = (df["gcs_lowest"].isna() & df["gcs_e"].notna() & df["gcs_m"].notna()
+                & df["gcs_v"].isna() & (df["gcs_note"] == "tersedia"))
+        df.loc[fill, "gcs_lowest"] = (df["gcs_e"] + df["gcs_m"] + v_est).round()[fill]
+        df["gcs_v_derived"] = fill.astype(int)
+
     # Rasio SpO2/FiO2 terendah
     df["sf_ratio_lowest"] = df["spo2_lowest"] / df["fio2_lowest"]
 
@@ -36,6 +53,39 @@ def build_derived_columns(df: pd.DataFrame) -> pd.DataFrame:
     df["gcs_unassessable"] = (df["gcs_note"] != "tersedia").astype(int)
 
     return df
+
+
+# Neoplasma jinak D10-D36 -> sistem organ lokasi, memakai 10 kategori formulir
+# penelitian (Lampiran 3). Tidak ada kategori muskuloskeletal/kulit -> Lain-lain.
+# Neoplasma ganas (C), in situ (D00-D09), perilaku tak pasti (D37-D48) dan
+# hematologi (D50-D89) tetap hemato-onkologi.
+_BENIGN_SITE = {
+    **dict.fromkeys(["D12", "D13"], "Sistem gastrointestinal/hati"),
+    **dict.fromkeys(["D14", "D15"], "Sistem respirasi"),
+    **dict.fromkeys(["D25", "D26", "D27", "D28"], "Sistem obstetri/ginekologi"),
+    **dict.fromkeys(["D29", "D30", "D34", "D35"], "Sistem renal/metabolik"),
+    **dict.fromkeys(["D32", "D33"], "Sistem neurologi"),
+}
+_BENIGN_SUBSITE = {  # pengecualian tingkat 4 karakter
+    "D15.1": "Sistem kardiovaskular",                     # jantung
+    "D35.2": "Sistem neurologi", "D35.3": "Sistem neurologi", "D35.4": "Sistem neurologi",
+    "D36.1": "Sistem neurologi",                          # saraf tepi
+}
+
+
+def recategorize_diagnosis(icd: pd.Series, category: pd.Series) -> pd.Series:
+    """Koreksi kategori IT; kode lain/kosong memakai kategori IT apa adanya.
+
+    - neoplasma jinak D10-D36 -> sistem organ lokasi
+    - T80-T88 (komplikasi tindakan medis/bedah) bukan trauma -> Lain-lain
+    - obstetri/ginekologi (n < 20, OR tak stabil) digabung ke Lain-lain
+    """
+    code = icd.fillna("").astype(str).str.strip().str.upper()
+    benign = code.str.match(r"D(1\d|2\d|3[0-6])")
+    new = code.str[:5].map(_BENIGN_SUBSITE).fillna(code.str[:3].map(_BENIGN_SITE)).fillna("Lain-lain")
+    out = category.where(~benign, new)
+    out = out.mask(code.str.match(r"T8[0-8]"), "Lain-lain")
+    return out.replace({"Sistem obstetri/ginekologi": "Lain-lain"})
 
 
 def apply_range_checks(df: pd.DataFrame, ranges: dict) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -83,8 +133,25 @@ def apply_selection(df: pd.DataFrame, cfg) -> tuple[pd.DataFrame, pd.DataFrame]:
               f"Dikeluarkan: lama rawat ICU < {pre['min_icu_hours']} jam", df)
     df = drop(df["pre_icu_los_hours"].isna(),
               "Dikeluarkan: durasi pra-ICU tidak dapat dihitung (rujukan tanpa waktu masuk)", df)
-    df = drop(df["total_hospital_billing"].isna() | df["inacbg_claim"].isna(),
-              "Dikeluarkan: data tagihan/klaim tidak lengkap (outcome tidak dapat ditentukan)", df)
+    # klaim = 0 / tagihan = 0 diperlakukan sama dengan kosong: klaim belum final
+    # (pending/ditolak) bukan under-reimbursement, dan rasio /0 tak terdefinisi
+    df = drop(~(df["total_hospital_billing"] > 0) | ~(df["inacbg_claim"] > 0),
+              "Dikeluarkan: data tagihan/klaim tidak lengkap atau nol (outcome tidak dapat ditentukan)", df)
+
+    # Episode dengan data tidak konsisten dikeluarkan (bukan dikoreksi). Data mart
+    # RSCM belum terkonfirmasi IT; sampel tetap > target 600 (lihat Bab 4).
+    if "hospital_discharge_datetime" in df:
+        df = drop(df["hospital_discharge_datetime"].isna(),
+                  "Dikeluarkan: tanggal keluar RS kosong (tagihan mungkin belum final)", df)
+        df = drop(df["icu_discharge_datetime"] > df["hospital_discharge_datetime"],
+                  "Dikeluarkan: keluar ICU tercatat setelah keluar RS", df)
+    if "icu_billing" in df:
+        df = drop(df["icu_billing"] > df["total_hospital_billing"],
+                  "Dikeluarkan: biaya ICU melebihi total tagihan episode", df)
+    df = drop(df["jkn_class"].isna(),
+              "Dikeluarkan: kelas rawat JKN tidak valid (kode di luar 1-3)", df)
+    df = drop((df["mechanical_ventilation"] == 0) & (df["oxygen_device"] == "Ventilator"),
+              "Dikeluarkan: status ventilasi bertentangan dengan alat O2 (ventilator)", df)
 
     flow[-1]["tahap"] = flow[-1]["tahap"]
     flow.append({"tahap": "Kohort analisis akhir", "n_keluar": 0, "n_sisa": len(df)})

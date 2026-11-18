@@ -1,11 +1,16 @@
 """Validasi, metrik performa, dan gambar evaluasi model.
 
-Dua skema validasi dijalankan, sesuai rencana analisis proposal:
+Skema validasi sesuai proposal §3.10.4:
 
-1. **Nested cross-validation** (5 outer x 3 inner) - estimasi performa yang tidak
-   optimistis: hyperparameter dipilih di inner fold, dinilai di outer fold.
-2. **Validasi temporal (internal-eksternal)** - dilatih pada admisi Mei-Des 2025,
-   diuji pada Jan-Mei 2026, untuk melihat kestabilan terhadap pergeseran waktu.
+1. **Nested cross-validation berulang** (5 outer x 10 ulangan, 3 inner, Optuna) -
+   estimasi UTAMA. Hyperparameter dipilih di inner fold, dinilai di outer fold;
+   fold dikelompokkan per pasien.
+2. **Validasi temporal** - latih Mei-Des 2025, uji Jan-Mei 2026; analisis
+   sensitivitas, tidak dipakai memilih model.
+
+Di setiap fold: MICE >=5 set (prediksi dirata-rata), ambang klasifikasi (Youden)
+dan rekalibrasi (bila class weighting) ditentukan dari prediksi out-of-fold
+DATA LATIH, lalu diterapkan apa adanya pada data uji.
 
 Metrik: diskriminasi (AUC-ROC, PR-AUC, sensitivitas, spesifisitas, F1) dan
 kalibrasi (Brier score, calibration intercept & slope).
@@ -13,9 +18,13 @@ kalibrasi (Brier score, calibration intercept & slope).
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+import optuna
+from joblib import Parallel, delayed
+from sklearn.base import clone
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize_scalar
@@ -29,13 +38,14 @@ from sklearn.metrics import (
     roc_auc_score,
     roc_curve,
 )
-from sklearn.model_selection import GridSearchCV, StratifiedKFold
+from sklearn.model_selection import StratifiedGroupKFold, cross_val_score
 
 from common import viz
 from models import MODEL_LABELS
 
 STAGE = "04_train_model"
 EPS = 1e-9
+optuna.logging.set_verbosity(optuna.logging.WARNING)
 
 
 # ---------------------------------------------------------------------------
@@ -58,7 +68,7 @@ def calibration_intercept_slope(y_true, y_prob) -> tuple[float, float]:
     logit = np.log(p / (1 - p)).reshape(-1, 1)
     y = np.asarray(y_true, dtype=int)
 
-    slope_model = LogisticRegression(penalty=None, solver="lbfgs", max_iter=1000)
+    slope_model = LogisticRegression(C=np.inf, solver="lbfgs", max_iter=1000)
     slope_model.fit(logit, y)
     slope = float(slope_model.coef_[0][0])
 
@@ -90,6 +100,8 @@ def classification_metrics(y_true, y_prob, threshold: float | None = None) -> di
         "npv": tn / (tn + fn) if (tn + fn) else np.nan,
         "f1": f1_score(y_true, y_pred, zero_division=0),
         "akurasi": (tp + tn) / len(y_true),
+        "fp": int(fp),
+        "fn": int(fn),
         "brier": brier_score_loss(y_true, y_prob),
         "calibration_intercept": intercept,
         "calibration_slope": slope,
@@ -97,93 +109,184 @@ def classification_metrics(y_true, y_prob, threshold: float | None = None) -> di
     }
 
 
+def regression_metrics(y_true, y_pred, y_binary) -> dict:
+    """Luaran sekunder log(klaim/tagihan): R², RMSE, MAE, slope kalibrasi, AUC turunan.
+
+    AUC turunan = kemampuan prediksi log-rasio membedakan rasio <1 (log <0);
+    -y_pred dipakai karena log-rasio rendah = under-reimbursement.
+    """
+    y_true, y_pred = np.asarray(y_true, float), np.asarray(y_pred, float)
+    resid = y_true - y_pred
+    slope = np.polyfit(y_pred, y_true, 1)[0] if np.std(y_pred) > 0 else np.nan
+    return {
+        "r2": 1 - np.sum(resid ** 2) / np.sum((y_true - y_true.mean()) ** 2),
+        "rmse": float(np.sqrt(np.mean(resid ** 2))),
+        "mae": float(np.mean(np.abs(resid))),
+        "calibration_slope": float(slope),
+        "auc_turunan": roc_auc_score(y_binary, -y_pred),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Skema validasi
 # ---------------------------------------------------------------------------
 
-def nested_cv(name: str, pipeline, grid: dict, X: pd.DataFrame, y: np.ndarray, cfg) -> dict:
-    """Nested cross-validation; kembalikan metrik per fold dan prediksi out-of-fold."""
+def suggest(trial, space: dict) -> dict:
+    """Terjemahkan ruang pencarian config -> saran parameter Optuna."""
+    out = {}
+    for key, spec in space.items():
+        kind = spec[0]
+        if kind == "int":
+            out[key] = trial.suggest_int(key, spec[1], spec[2])
+        elif kind in ("float", "log"):
+            out[key] = trial.suggest_float(key, spec[1], spec[2], log=kind == "log")
+        elif kind == "cat":
+            out[key] = trial.suggest_categorical(key, spec[1])
+        else:
+            raise ValueError(f"Jenis ruang pencarian tidak dikenal: {spec}")
+    return out
+
+
+def _logit(p):
+    p = np.clip(np.asarray(p, dtype=float), 1e-6, 1 - 1e-6)
+    return np.log(p / (1 - p)).reshape(-1, 1)
+
+
+def run_fold(pipeline, space: dict, X: pd.DataFrame, y: np.ndarray, strata: np.ndarray,
+             groups: np.ndarray, train_idx, test_idx, tr: dict, seed: int,
+             regression: bool = False, recalibrate: bool = False, keep_models: bool = False) -> dict:
+    """Satu fold luar: tuning Optuna -> MI m set -> OOF latih -> ambang/rekalibrasi -> uji."""
+    warnings.filterwarnings("ignore")
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
+    Xtr, ytr = X.iloc[train_idx], y[train_idx]
+    inner = StratifiedGroupKFold(n_splits=int(tr["inner_folds"]), shuffle=True, random_state=seed)
+    splits = list(inner.split(Xtr, strata[train_idx], groups[train_idx]))
+    scoring = tr["scoring_regression"] if regression else tr["scoring"]
+
+    def objective(trial):
+        model = clone(pipeline).set_params(**suggest(trial, space))
+        return cross_val_score(model, Xtr, ytr, cv=splits, scoring=scoring, n_jobs=1).mean()
+
+    study = optuna.create_study(direction="maximize", sampler=optuna.samplers.TPESampler(seed=seed))
+    study.optimize(objective, n_trials=int(tr["n_trials"]))
+    params = study.best_params
+
+    def predict(model, Xq):
+        return model.predict(Xq) if regression else model.predict_proba(Xq)[:, 1]
+
+    out = {"params": params}
+
+    # MICE m set: sample_posterior + seed berbeda per set; prediksi dirata-rata
+    m = int(tr["n_imputations"])
+    models, preds = [], []
+    for k in range(m):
+        model = clone(pipeline).set_params(**params, prep__impute__sample_posterior=m > 1,
+                                           prep__impute__random_state=seed + k)
+        model.fit(Xtr, ytr)
+        if len(test_idx):
+            preds.append(predict(model, X.iloc[test_idx]))
+        if keep_models:
+            models.append(model)
+    out["pred"] = np.mean(preds, axis=0) if preds else np.array([])
+    if keep_models:
+        out["models"] = models
+    if regression:
+        return out
+
+    # OOF data latih (inner split yang sama) -> ambang & rekalibrasi tanpa menyentuh data uji
+    oof = np.zeros(len(train_idx))
+    for a_idx, b_idx in splits:
+        model = clone(pipeline).set_params(**params).fit(Xtr.iloc[a_idx], ytr[a_idx])
+        oof[b_idx] = predict(model, Xtr.iloc[b_idx])
+    if recalibrate:
+        # rekalibrasi logistik (Platt) pada logit prediksi OOF data latih
+        cal = LogisticRegression(C=1e6, max_iter=1000).fit(_logit(oof), ytr)
+        oof = cal.predict_proba(_logit(oof))[:, 1]
+        if len(test_idx):
+            out["pred"] = cal.predict_proba(_logit(out["pred"]))[:, 1]
+        out["calibrator"] = cal
+    out["threshold"] = youden_threshold(ytr, oof)
+    return out
+
+
+def repeated_nested_cv(name: str, pipeline, space: dict, X: pd.DataFrame, y: np.ndarray,
+                       strata: np.ndarray, groups: np.ndarray, cfg, regression: bool = False,
+                       recalibrate: bool = False) -> dict:
+    """Nested CV 5 fold x 10 ulangan (fold per pasien); fold luar dijalankan paralel.
+
+    Mengembalikan prediksi out-of-fold format panjang (satu baris per episode per
+    ulangan) dan metrik per fold luar.
+    """
     tr = cfg["training"]
-    outer = StratifiedKFold(n_splits=int(tr["outer_folds"]), shuffle=True, random_state=cfg.seed)
-    inner = StratifiedKFold(n_splits=int(tr["inner_folds"]), shuffle=True, random_state=cfg.seed)
+    jobs = []
+    for r in range(int(tr["outer_repeats"])):
+        outer = StratifiedGroupKFold(n_splits=int(tr["outer_folds"]), shuffle=True,
+                                     random_state=cfg.seed + r)
+        for k, (a_idx, b_idx) in enumerate(outer.split(X, strata, groups), start=1):
+            jobs.append((r + 1, k, a_idx, b_idx, cfg.seed + 1000 * (r + 1) + k))
 
-    oof = np.full(len(y), np.nan)
-    fold_rows, best_params = [], []
+    results = Parallel(n_jobs=int(tr["n_jobs"]))(
+        delayed(run_fold)(pipeline, space, X, y, strata, groups, a_idx, b_idx, tr, s,
+                          regression, recalibrate)
+        for _, _, a_idx, b_idx, s in jobs)
 
-    for fold, (train_idx, test_idx) in enumerate(outer.split(X, y), start=1):
-        search = GridSearchCV(
-            pipeline, grid, scoring=tr["scoring"], cv=inner,
-            n_jobs=int(tr["n_jobs"]), refit=True,
-        )
-        search.fit(X.iloc[train_idx], y[train_idx])
-        prob = search.predict_proba(X.iloc[test_idx])[:, 1]
-        oof[test_idx] = prob
-
-        metrics = classification_metrics(y[test_idx], prob)
-        fold_rows.append({"model": name, "fold": fold, **metrics})
-        best_params.append(search.best_params_)
-
+    oof_rows, fold_rows = [], []
+    for (r, k, _, b_idx, _), res in zip(jobs, results):
+        frame = pd.DataFrame({"model": name, "ulangan": r, "fold": k, "row": b_idx,
+                              "pred": res["pred"]})
+        if regression:
+            metrics = regression_metrics(y[b_idx], res["pred"], strata[b_idx])
+        else:
+            frame["ambang"] = res["threshold"]
+            frame["kelas_prediksi"] = (res["pred"] >= res["threshold"]).astype(int)
+            metrics = classification_metrics(y[b_idx], res["pred"], res["threshold"])
+        oof_rows.append(frame)
+        fold_rows.append({"model": name, "ulangan": r, "fold": k, **metrics})
     return {
+        "oof": pd.concat(oof_rows, ignore_index=True),
         "fold_metrics": pd.DataFrame(fold_rows),
-        "oof_pred": oof,
-        "best_params": best_params,
-        "oof_metrics": classification_metrics(y, oof),
+        "params": [res["params"] for res in results],
     }
 
 
-def temporal_validation(name: str, pipeline, grid: dict, X: pd.DataFrame, y: np.ndarray,
-                        train_mask: np.ndarray, cfg) -> dict:
-    """Latih pada periode awal, uji pada periode berikutnya (validasi temporal)."""
-    tr = cfg["training"]
-    inner = StratifiedKFold(n_splits=int(tr["inner_folds"]), shuffle=True, random_state=cfg.seed)
-    search = GridSearchCV(pipeline, grid, scoring=tr["scoring"], cv=inner,
-                          n_jobs=int(tr["n_jobs"]), refit=True)
-    search.fit(X[train_mask], y[train_mask])
-
-    prob = search.predict_proba(X[~train_mask])[:, 1]
+def holdout(name: str, pipeline, space: dict, X: pd.DataFrame, y: np.ndarray, strata: np.ndarray,
+            groups: np.ndarray, train_mask: np.ndarray, cfg) -> dict:
+    """Validasi temporal: tuning + MI pada periode latih, uji pada periode berikutnya."""
+    tr_idx, te_idx = np.flatnonzero(train_mask), np.flatnonzero(~train_mask)
+    res = run_fold(pipeline, space, X, y, strata, groups, tr_idx, te_idx, cfg["training"],
+                   cfg.seed, keep_models=True)
     return {
         "model": name,
-        "estimator": search.best_estimator_,
-        "best_params": search.best_params_,
-        "y_test": y[~train_mask],
-        "prob_test": prob,
-        "metrics": classification_metrics(y[~train_mask], prob),
-        "n_train": int(train_mask.sum()),
-        "n_test": int((~train_mask).sum()),
+        "estimators": res["models"],
+        "best_params": res["params"],
+        "y_test": y[te_idx],
+        "prob_test": res["pred"],
+        "metrics": classification_metrics(y[te_idx], res["pred"], res["threshold"]),
+        "n_train": len(tr_idx),
+        "n_test": len(te_idx),
     }
 
 
-def comparison_table(nested: dict, temporal: dict, auc_target: float) -> pd.DataFrame:
-    """Tabel 4.2 - perbandingan performa antarmodel."""
-    rows = []
-    for name in nested:
-        folds = nested[name]["fold_metrics"]
-        auc_mean, auc_sd = folds["auc_roc"].mean(), folds["auc_roc"].std()
-        temp = temporal[name]["metrics"]
-        rows.append({
-            "model": MODEL_LABELS.get(name, name),
-            "auc_nested_cv": f"{auc_mean:.3f} ± {auc_sd:.3f}",
-            "auc_validasi_temporal": f"{temp['auc_roc']:.3f}",
-            "pr_auc": f"{temp['pr_auc']:.3f}",
-            "sensitivitas": f"{temp['sensitivitas']:.3f}",
-            "spesifisitas": f"{temp['spesifisitas']:.3f}",
-            "f1": f"{temp['f1']:.3f}",
-            "brier": f"{temp['brier']:.3f}",
-            "calibration_intercept": f"{temp['calibration_intercept']:.3f}",
-            "calibration_slope": f"{temp['calibration_slope']:.3f}",
-            "memenuhi_target_auc": "ya" if auc_mean >= auc_target else "tidak",
-            "_auc_sort": auc_mean,
-        })
-    table = pd.DataFrame(rows).sort_values("_auc_sort", ascending=False).drop(columns="_auc_sort")
-    return table.reset_index(drop=True)
+def final_model(pipeline, space: dict, X: pd.DataFrame, y: np.ndarray, strata: np.ndarray,
+                groups: np.ndarray, cfg) -> dict:
+    """Model final: prosedur tuning yang sama pada seluruh data pengembangan (§3.10.4)."""
+    res = run_fold(pipeline, space, X, y, strata, groups, np.arange(len(X)),
+                   np.array([], dtype=int), cfg["training"], cfg.seed, keep_models=True)
+    return {"models": res["models"], "params": res["params"], "threshold": res["threshold"]}
+
+
+def mean_oof(cv: dict, n: int) -> np.ndarray:
+    """Prediksi out-of-fold per episode, dirata-rata antar-ulangan (untuk gambar)."""
+    return cv["oof"].groupby("row")["pred"].mean().reindex(range(n)).to_numpy()
 
 
 # ---------------------------------------------------------------------------
 # Gambar
 # ---------------------------------------------------------------------------
 
-def plot_roc(temporal: dict, out_dir: Path) -> Path:
-    """Kurva ROC ketiga model pada data uji temporal."""
+def plot_roc(temporal: dict, out_dir: Path, where: str = "data uji temporal",
+             fname: str = "01_kurva_roc.png", source: str | None = None) -> Path:
+    """Kurva ROC ketiga model."""
     fig, ax = plt.subplots(figsize=(7, 6))
     for name, res in temporal.items():
         fpr, tpr, _ = roc_curve(res["y_test"], res["prob_test"])
@@ -193,14 +296,15 @@ def plot_roc(temporal: dict, out_dir: Path) -> Path:
             label="Tebakan acak")
     ax.set_xlabel("1 − spesifisitas")
     ax.set_ylabel("Sensitivitas")
-    ax.set_title("Kurva ROC pada data uji temporal")
+    ax.set_title(f"Kurva ROC pada {where}")
     ax.grid(axis="both")
     ax.legend(loc="lower right")
-    viz.annotate_source(ax, "Data uji = admisi ICU Jan-Mei 2026 (tidak dipakai saat pelatihan)")
-    return viz.save_fig(fig, out_dir / "01_kurva_roc.png")
+    viz.annotate_source(ax, source or "Data uji = admisi ICU Jan-Mei 2026 (tidak dipakai saat pelatihan)")
+    return viz.save_fig(fig, out_dir / fname)
 
 
-def plot_pr(temporal: dict, out_dir: Path) -> Path:
+def plot_pr(temporal: dict, out_dir: Path, where: str = "data uji temporal",
+            fname: str = "02_kurva_pr.png") -> Path:
     """Kurva precision-recall (lebih informatif saat kelas tidak seimbang)."""
     fig, ax = plt.subplots(figsize=(7, 6))
     prevalence = None
@@ -215,13 +319,14 @@ def plot_pr(temporal: dict, out_dir: Path) -> Path:
     ax.set_xlabel("Recall (sensitivitas)")
     ax.set_ylabel("Precision (PPV)")
     ax.set_ylim(0, 1.02)
-    ax.set_title("Kurva precision-recall pada data uji temporal")
+    ax.set_title(f"Kurva precision-recall pada {where}")
     ax.grid(axis="both")
     ax.legend(loc="lower left")
-    return viz.save_fig(fig, out_dir / "02_kurva_pr.png")
+    return viz.save_fig(fig, out_dir / fname)
 
 
-def plot_calibration(temporal: dict, out_dir: Path, n_bins: int = 10) -> Path:
+def plot_calibration(temporal: dict, out_dir: Path, n_bins: int = 10, where: str = "data uji temporal",
+                     fname: str = "03_kalibrasi.png") -> Path:
     """Kurva kalibrasi: probabilitas prediksi vs proporsi kejadian teramati."""
     fig, ax = plt.subplots(figsize=(7, 6))
     ax.plot([0, 1], [0, 1], linestyle="--", linewidth=1.3, color=viz.INK_MUTED,
@@ -247,11 +352,11 @@ def plot_calibration(temporal: dict, out_dir: Path, n_bins: int = 10) -> Path:
     ax.set_xlabel("Probabilitas prediksi")
     ax.set_ylabel("Proporsi kejadian teramati")
     ax.set_xlim(0, 1); ax.set_ylim(0, 1)
-    ax.set_title("Kalibrasi model pada data uji temporal")
+    ax.set_title(f"Kalibrasi model pada {where}")
     ax.grid(axis="both")
     ax.legend(loc="upper left", fontsize=8)
     viz.annotate_source(ax, f"Titik = rerata per desil probabilitas prediksi ({n_bins} kelompok)")
-    return viz.save_fig(fig, out_dir / "03_kalibrasi.png")
+    return viz.save_fig(fig, out_dir / fname)
 
 
 def plot_fold_auc(nested: dict, auc_target: float, out_dir: Path) -> Path:
@@ -279,7 +384,7 @@ def plot_fold_auc(nested: dict, auc_target: float, out_dir: Path) -> Path:
 
 
 def plot_confusion(temporal: dict, out_dir: Path) -> Path:
-    """Matriks konfusi tiap model pada ambang Youden."""
+    """Matriks konfusi tiap model pada ambang Youden dari data latih."""
     names = list(temporal)
     fig, axes = plt.subplots(1, len(names), figsize=(4.2 * len(names), 4.2))
     axes = np.atleast_1d(axes).ravel()
@@ -306,9 +411,10 @@ def plot_confusion(temporal: dict, out_dir: Path) -> Path:
     return viz.save_fig(fig, out_dir / "05_matriks_konfusi.png")
 
 
-def plot_decision_curve(temporal: dict, out_dir: Path) -> Path:
+def plot_decision_curve(temporal: dict, out_dir: Path, where: str = "data uji temporal",
+                        fname: str = "06_decision_curve.png") -> Path:
     """Decision curve analysis: manfaat bersih pada berbagai ambang keputusan."""
-    thresholds = np.linspace(0.05, 0.85, 60)
+    thresholds = np.linspace(0.05, 0.95, 91)
     fig, ax = plt.subplots(figsize=(8, 5.4))
 
     y = np.asarray(next(iter(temporal.values()))["y_test"], dtype=int)
@@ -335,7 +441,7 @@ def plot_decision_curve(temporal: dict, out_dir: Path) -> Path:
     ax.set_xlabel("Ambang probabilitas keputusan")
     ax.set_ylabel("Manfaat bersih (net benefit)")
     ax.set_ylim(min(-0.05, prevalence - 0.65), prevalence + 0.05)
-    ax.set_title("Decision curve analysis")
+    ax.set_title(f"Decision curve analysis pada {where}")
     ax.legend(loc="upper right", fontsize=8.5)
     viz.annotate_source(ax, "Semakin tinggi kurva pada ambang yang relevan, semakin berguna model untuk pengambilan keputusan")
-    return viz.save_fig(fig, out_dir / "06_decision_curve.png")
+    return viz.save_fig(fig, out_dir / fname)

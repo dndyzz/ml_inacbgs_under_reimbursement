@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.experimental import enable_iterative_imputer  # noqa: F401  (wajib)
-from sklearn.impute import IterativeImputer, SimpleImputer
+from sklearn.impute import IterativeImputer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
@@ -74,7 +74,7 @@ def build_feature_matrix(df: pd.DataFrame, cfg) -> tuple[pd.DataFrame, pd.DataFr
     X = work[feature_cols].copy()
 
     y = work[[
-        "episode_id", "icu_admission_datetime", "periode",
+        "episode_id", "patient_code", "icu_admission_datetime", "periode",
         out["binary_col"], out["continuous_col"], out["ratio_col"],
     ]].copy()
 
@@ -136,41 +136,33 @@ def msofa_components(df: pd.DataFrame) -> pd.DataFrame:
     return comp
 
 
-def make_preprocessor(spec: dict, scale: bool = False, seed: int = 42) -> ColumnTransformer:
+def make_preprocessor(spec: dict, scale: bool = False, seed: int = 42) -> Pipeline:
     """Rangkai langkah preprocessing yang harus di-fit di dalam fold.
 
-    - numerik : MICE (IterativeImputer) [+ standardisasi bila ``scale=True``]
-    - ordinal : median (kelas rawat jarang hilang; urutan 1<2<3 dipertahankan)
-    - biner   : modus
-    - kategorik: modus + one-hot encoding
+    encode (one-hot kategorik, sisanya apa adanya) -> MICE (IterativeImputer) atas
+    SELURUH prediktor sebagai variabel bantu, tanpa luaran (proposal §3.10.2)
+    [-> standardisasi bila ``scale=True``, khusus elastic net].
 
-    ``scale=True`` dipakai untuk elastic net logistic regression; model berbasis
-    pohon tidak memerlukannya.
+    Imputasi ganda: set ``impute__sample_posterior=True`` + ``random_state`` berbeda
+    per set (lihat evaluate.fit_predict). Default = satu imputasi deterministik.
     """
-    numeric_steps = [
-        ("impute", IterativeImputer(max_iter=10, random_state=seed, sample_posterior=False)),
-    ]
-    if scale:
-        numeric_steps.append(("scale", StandardScaler()))
-
-    ordinal_steps = [("impute", SimpleImputer(strategy="median"))]
-    if scale:
-        ordinal_steps.append(("scale", StandardScaler()))
-
-    return ColumnTransformer(
+    # ponytail: nilai hilang hanya ada di variabel numerik pada data RSCM; bila
+    # kategorik/biner kelak hilang, NaN kategorik jadi kategori tersendiri dan
+    # biner diimputasi kontinu (tambahkan min/max_value di IterativeImputer).
+    encode = ColumnTransformer(
         transformers=[
-            ("num", Pipeline(numeric_steps), spec["numeric"]),
-            ("ord", Pipeline(ordinal_steps), spec["ordinal"]),
-            ("bin", SimpleImputer(strategy="most_frequent"), spec["binary"]),
-            ("cat", Pipeline([
-                ("impute", SimpleImputer(strategy="most_frequent")),
-                ("onehot", OneHotEncoder(drop="first", handle_unknown="ignore",
-                                         sparse_output=False)),
-            ]), spec["categorical"]),
+            ("pass", "passthrough", spec["numeric"] + spec["ordinal"] + spec["binary"]),
+            ("onehot", OneHotEncoder(drop="first", handle_unknown="ignore",
+                                     sparse_output=False), spec["categorical"]),
         ],
         remainder="drop",
         verbose_feature_names_out=False,
     )
+    steps = [("encode", encode),
+             ("impute", IterativeImputer(max_iter=10, random_state=seed, sample_posterior=False))]
+    if scale:
+        steps.append(("scale", StandardScaler()))
+    return Pipeline(steps)
 
 
 def encoded_feature_names(preprocessor: ColumnTransformer) -> list[str]:

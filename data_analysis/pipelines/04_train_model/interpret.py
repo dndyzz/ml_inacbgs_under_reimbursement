@@ -7,6 +7,7 @@ bila peringkat keduanya sejalan, temuan lebih meyakinkan.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -43,6 +44,17 @@ def compute_shap(pipeline, X: pd.DataFrame):
     # Random Forest mengembalikan nilai untuk kedua kelas -> ambil kelas positif
     if explanation.values.ndim == 3:
         explanation = explanation[:, :, 1]
+    return explanation, Xt
+
+
+def compute_shap_mi(pipelines: list, X: pd.DataFrame):
+    """SHAP model final yang dilatih pada m set imputasi: nilai & data dirata-rata."""
+    parts = [compute_shap(p, X) for p in pipelines]
+    Xt = sum(xt for _, xt in parts) / len(parts)
+    explanation = shap.Explanation(
+        values=np.mean([np.asarray(e.values) for e, _ in parts], axis=0),
+        base_values=np.mean([np.asarray(e.base_values) for e, _ in parts], axis=0),
+        data=Xt.to_numpy(), feature_names=list(Xt.columns))
     return explanation, Xt
 
 
@@ -98,16 +110,42 @@ def permutation_table(pipelines: dict, X: pd.DataFrame, y: np.ndarray, cfg) -> p
 # Gambar
 # ---------------------------------------------------------------------------
 
+def for_display(explanation):
+    """Salinan Explanation dengan label definisi operasional; log1p durasi pra-ICU -> jam."""
+    names = list(explanation.feature_names)
+    data = np.array(explanation.data, dtype=float, copy=True)
+    # nilai tampilan saja; SHAP tidak berubah
+    if "pre_icu_los_log1p" in names:
+        i = names.index("pre_icu_los_log1p")
+        data[..., i] = np.round(np.expm1(data[..., i]), 1)
+    data = np.round(data, 2)
+    if "sf_ratio_lowest" in names:
+        i = names.index("sf_ratio_lowest")
+        data[..., i] = np.round(data[..., i])
+    return shap.Explanation(values=explanation.values, base_values=explanation.base_values,
+                            data=data, feature_names=[viz.feature_label(n) for n in names])
+
+
+def _indonesian_rest_label(ax) -> None:
+    """'Sum of N other features' / 'N other features' -> bahasa Indonesia."""
+    labels = [t.get_text() for t in ax.get_yticklabels()]
+    new = [re.sub(r"^(?:Sum of )?(\d+) other features$", r"\1 variabel lainnya", t) for t in labels]
+    if new != labels:
+        ax.set_yticks(ax.get_yticks(), new)
+
+
 def plot_shap_beeswarm(explanation, out_dir: Path, max_display: int = 15) -> Path:
-    """Beeswarm: sebaran kontribusi tiap variabel pada seluruh pasien uji."""
+    """Beeswarm: sebaran kontribusi tiap variabel pada seluruh episode."""
     viz.set_theme()
-    shap.plots.beeswarm(explanation, max_display=max_display, show=False,
-                        color=viz.diverging_cmap())
+    shap.plots.beeswarm(for_display(explanation), max_display=max_display, show=False,
+                        color=viz.diverging_cmap(), color_bar_label="Nilai variabel")
     fig = plt.gcf()
-    fig.set_size_inches(9, 0.42 * max_display + 2.2)
-    fig.suptitle("SHAP beeswarm — kontribusi tiap variabel per pasien",
-                 x=0.02, ha="left", fontsize=12, fontweight="bold")
-    fig.tight_layout(rect=(0, 0, 1, 0.95))
+    fig.set_size_inches(9.5, 0.42 * max_display + 2.2)
+    ax, cbar = fig.axes[0], fig.axes[-1]
+    ax.set_xlabel("Nilai SHAP (kontribusi terhadap probabilitas under-reimbursement)")
+    _indonesian_rest_label(ax)
+    cbar.set_yticklabels(["Rendah", "Tinggi"])
+    fig.tight_layout()
     return viz.save_fig(fig, out_dir / "07_shap_beeswarm.png")
 
 
@@ -115,13 +153,13 @@ def plot_shap_bar(table: pd.DataFrame, out_dir: Path, max_display: int = 15) -> 
     """Peringkat global: rerata |SHAP| tiap variabel."""
     d = table.head(max_display).iloc[::-1]
     fig, ax = plt.subplots(figsize=(9, 0.42 * len(d) + 1.8))
-    bars = ax.barh(d["variabel"], d["mean_abs_shap"], color=viz.SERIES[0], height=0.62)
+    bars = ax.barh(d["variabel"].map(viz.feature_label), d["mean_abs_shap"], color=viz.SERIES[0], height=0.62)
     for bar, value, share in zip(bars, d["mean_abs_shap"], d["kontribusi_relatif"]):
         ax.annotate(f"{value:.3f}  ({share:.0%})",
                     xy=(value, bar.get_y() + bar.get_height() / 2),
                     xytext=(6, 0), textcoords="offset points", va="center",
                     fontsize=8.5, color=viz.INK_SECONDARY)
-    ax.set_xlabel("Rerata |nilai SHAP| (log-odds)")
+    ax.set_xlabel("Rerata |nilai SHAP|")
     ax.set_xlim(0, d["mean_abs_shap"].max() * 1.32)
     ax.grid(axis="x")
     ax.set_title("Kepentingan variabel global (SHAP)")
@@ -146,7 +184,7 @@ def plot_shap_dependence(explanation, Xt: pd.DataFrame, table: pd.DataFrame,
         sc = ax.scatter(x, s, c=x, cmap=viz.sequential_cmap(), s=16, alpha=0.85,
                         edgecolor="none")
         ax.axhline(0, linewidth=1.1, color=viz.BASELINE)
-        ax.set_xlabel(col, fontsize=9)
+        ax.set_xlabel(viz.feature_label(col), fontsize=9)
         ax.set_ylabel("Nilai SHAP", fontsize=9)
         ax.tick_params(labelsize=8)
     for ax in axes[len(top):]:
@@ -163,16 +201,18 @@ def plot_shap_waterfall(explanation, probs: np.ndarray, out_dir: Path,
     """Waterfall: penjelasan individual pada pasien berisiko tertinggi & terendah."""
     order = np.argsort(probs)
     picks = [("risiko_tertinggi", int(order[-1])), ("risiko_terendah", int(order[0]))][:n_cases]
+    shown = for_display(explanation)
 
     paths = []
     for label, idx in picks:
         viz.set_theme()
-        shap.plots.waterfall(explanation[idx], max_display=12, show=False)
+        shap.plots.waterfall(shown[idx], max_display=12, show=False)
         fig = plt.gcf()
-        fig.set_size_inches(9.5, 6.2)
+        fig.set_size_inches(10.5, 6.2)
+        _indonesian_rest_label(fig.axes[0])
         fig.suptitle(
-            f"Penjelasan individual — pasien {label.replace('_', ' ')} "
-            f"(probabilitas prediksi {probs[idx]:.2f})",
+            f"Episode dengan prediksi risiko {label.split('_')[1]} "
+            f"(probabilitas prediksi {probs[idx]:.2f})".replace(".", ","),
             x=0.02, ha="left", fontsize=11.5, fontweight="bold")
         fig.tight_layout(rect=(0, 0, 1, 0.94))
         paths.append(viz.save_fig(fig, out_dir / f"10_shap_waterfall_{label}.png"))

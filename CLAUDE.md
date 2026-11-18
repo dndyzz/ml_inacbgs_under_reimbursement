@@ -39,17 +39,23 @@ Tagihan mencakup seluruh episode: pra-ICU + ICU + pasca-ICU.
 | Disfungsi organ, kriteria mSOFA tanpa komponen hepatik (4) | MAP terendah, rasio SpO₂/FiO₂ terendah, GCS terendah (bebas sedasi), kreatinin serum tertinggi |
 | Kasus (1) | kategori diagnosis utama menurut sistem organ |
 
+Komponen mSOFA masuk sebagai variabel mentah, **bukan** skor agregat (proposal §2.4.6) —
+`msofa_components` dan `organ_support_count` di config sengaja `false`.
+
 Catatan penting: GCS pasien yang tersedasi sepanjang 24 jam dinyatakan **hilang** dan diberi
 penanda "tidak dapat dinilai karena sedasi" — penanda itu ikut menjadi fitur, jangan dibuang.
 
 ### Rencana analisis (ringkas)
 
-- Preprocessing: MICE **di dalam fold**, one-hot untuk nominal, ordinal encoding untuk kelas rawat,
-  standardisasi hanya untuk regresi logistik, class weighting untuk menjaga kalibrasi.
+- Preprocessing: MICE **di dalam fold** (m ≥ 5, seluruh prediktor sebagai variabel bantu, tanpa
+  luaran), one-hot untuk nominal, ordinal encoding untuk kelas rawat, standardisasi hanya untuk
+  regresi logistik. Model utama TANPA class weighting; class weighting + rekalibrasi = sensitivitas.
 - Model: XGBoost, Random Forest, Elastic Net LR (pembanding yang dioptimalkan setara).
-- Validasi: nested CV 5 outer × 3 inner + validasi temporal (latih Mei–Des 2025, uji Jan–Mei 2026).
-- Metrik: AUC-ROC (target ≥ 0,75), sensitivitas, spesifisitas, F1; kalibrasi via Brier score dan
-  calibration intercept & slope.
+- Validasi: nested CV 5 fold × 10 ulangan (per pasien), inner 3 fold + Optuna; validasi temporal
+  (latih Mei–Des 2025, uji Jan–Mei 2026) hanya sebagai analisis sensitivitas.
+- Metrik: AUC-ROC (target ≥ 0,75), PR-AUC, sensitivitas, spesifisitas, F1 (ambang dari data latih);
+  kalibrasi via Brier score dan calibration intercept & slope; DCA; ΔAUC paired bootstrap + Holm;
+  evaluasi subkelompok (jenis kelamin, usia <60/≥60, kelas JKN, tipe admisi); analisis kasus lengkap.
 - Interpretabilitas: SHAP (TreeSHAP) global + individual, plus eksplorasi interaksi.
 - Tanpa seleksi variabel stepwise; reduksi dimensi diserahkan pada regularisasi masing-masing algoritma.
 

@@ -39,6 +39,39 @@ MODEL_LABELS = {
     "elastic_net_lr": "Elastic Net LR",
 }
 
+# Label fitur = nama variabel pada Tabel 3.1 Batasan Operasional (proposal etik);
+# level kategori ditulis "Variabel: level". Satu sumber untuk gambar dan tabel.
+FEATURE_LABELS = {
+    "age": "Usia (tahun)",
+    "sex_Perempuan": "Jenis kelamin: perempuan",
+    "sex_Laki-laki": "Jenis kelamin: laki-laki",
+    "jkn_class": "Kelas rawat JKN",
+    "icu_admission_type_Emergensi": "Tipe admisi unit perawatan intensif: emergensi",
+    "pre_icu_los_log1p": "Durasi rawat pra-unit perawatan intensif (jam)",
+    "pre_icu_los_hours": "Durasi rawat pra-unit perawatan intensif (jam)",
+    "mechanical_ventilation": "Ventilasi mekanik",
+    "vasopressor_inotrope": "Vasopresor/inotropik",
+    "transfusion_prc": "Transfusi darah",
+    "surgery_24h_tidak": "Pembedahan 24 jam: tidak",
+    "surgery_24h_emergensi": "Pembedahan 24 jam: emergensi",
+    "surgery_24h_elektif": "Pembedahan 24 jam: elektif",
+    "map_lowest": "MAP terendah (mmHg)",
+    "sf_ratio_lowest": "Rasio SpO₂/FiO₂ terendah",
+    "gcs_lowest": "GCS terendah",
+    "gcs_unassessable": "GCS tidak dapat dinilai karena sedasi",
+    "creatinine_highest": "Kreatinin tertinggi (mg/dL)",
+    "msofa_total": "Skor mSOFA total",
+    "organ_support_count": "Jumlah organ support",
+}
+
+
+def feature_label(name: str) -> str:
+    """Nama fitur teknis -> nama variabel definisi operasional."""
+    if name.startswith("diagnosis_category_"):
+        level = name.removeprefix("diagnosis_category_").removeprefix("Sistem ")
+        return "Kategori diagnosis utama: " + level[0].lower() + level[1:]
+    return FEATURE_LABELS.get(name, name)
+
 # --- Warna status (tidak pernah dipakai sebagai warna seri) ---------------
 STATUS = {
     "good": "#0ca30c",

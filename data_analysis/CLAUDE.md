@@ -17,7 +17,8 @@ python pipelines/00_data_generation/main.py
 python pipelines/01_eda/main.py
 python pipelines/02_preprocessing/main.py
 python pipelines/03_feature_building/main.py
-python pipelines/04_train_model/main.py          # --skip-shap untuk versi cepat
+python pipelines/04_train_model/main.py          # --skip-shap / --quick untuk uji cepat
+python pipelines/05_bab4/bab4_tables_real.py     # mode REAL: tabel Bab 4 (IK bootstrap, Holm, subkelompok)
 ```
 
 Atau buka `run_all_pipelines.ipynb` → **Run All Cells**. Keduanya menjalankan kode yang sama
@@ -54,7 +55,13 @@ data_analysis/
 | 01 eda | `data/raw/` | tabel + gambar EDA (tidak mengubah data) |
 | 02 preprocessing | `data/raw/` | `data/interim/analytic_cohort.csv` |
 | 03 feature_building | `data/interim/` | `data/processed/X_features.csv`, `y_target.csv`, `feature_spec.json` |
-| 04 train_model | `data/processed/` | `outputs/models/*.joblib`, Tabel 4.2 & 4.3, 13 gambar |
+| 04 train_model | `data/processed/` | `05_prediksi_oof.csv` (4 skenario × 3 model × 10 ulangan), metrik per fold, model final (m=5 imputasi), gambar |
+| 05 bab4 (REAL) | kohort + keluaran 04 | `tables/05_bab4/tabel_4_1..4_7.csv`, `ringkasan.json` |
+
+Skema tahap 04 (proposal §3.10.2–3.10.5): nested CV 5 fold × 10 ulangan per pasien, inner 3 fold +
+Optuna (TPE); MICE m=5 di dalam fold atas seluruh prediktor (prediksi dirata-rata); ambang Youden
+dan rekalibrasi ditentukan dari OOF data latih. Skenario: `utama`, `class_weight` (+ rekalibrasi),
+`kasus_lengkap`, `log_rasio` (luaran sekunder). Validasi temporal = sensitivitas saja.
 
 ## Kontrak setiap pipeline
 
@@ -125,4 +132,5 @@ Python 3.11.5 (Windows 11) · numpy 2.4 · pandas 3.0 · scikit-learn 1.9 · xgb
 shap 0.51 · matplotlib 3.11. Kode menjaga kompatibilitas mundur pada titik yang diketahui
 berubah (mis. argumen `penalty` pada `LogisticRegression` scikit-learn < 1.8).
 
-Waktu jalan penuh dari nol: ± 2 menit untuk 1.200 episode dummy.
+Waktu jalan tahap 04 penuh pada data RSCM (801 episode, 16 core): ± 1 jam; `--quick` ± 5 menit
+(angka mode cepat bukan hasil). optuna wajib terpasang (lihat requirements.txt).

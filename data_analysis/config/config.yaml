@@ -8,16 +8,20 @@ project:
   seed: 42
   # DUMMY = data sintetis. Ganti ke REAL saat data RSCM sudah tersedia
   # (lihat CLAUDE.md: pipeline 00 dilewati, 01 langsung baca data/raw/).
-  data_mode: DUMMY
+  # Mode REAL: Data Mart RSCM (impor via pipelines/01_eda/eda_report_real.py).
+  # Untuk kembali ke DUMMY: kembalikan paths ke data/interim, data/processed,
+  # outputs/... dan input_file ke icu_inacbg_raw.csv.
+  data_mode: REAL
 
 paths:
   data_raw: data/raw
-  data_interim: data/interim
-  data_processed: data/processed
-  figures: outputs/figures
-  tables: outputs/tables
-  models: outputs/models
-  reports: outputs/reports
+  # folder */real/ dan outputs_real/ di-gitignore: data pasien nyata
+  data_interim: data/interim/real
+  data_processed: data/processed/real
+  figures: outputs_real/figures
+  tables: outputs_real/tables
+  models: outputs_real/models
+  reports: outputs_real/reports
 
 # ---------------------------------------------------------------------
 # Pipeline 00 - pembangkitan data dummy
@@ -50,7 +54,7 @@ data_generation:
 # Pipeline 01 - exploratory data analysis
 # ---------------------------------------------------------------------
 eda:
-  input_file: icu_inacbg_raw.csv
+  input_file: icu_inacbg_REAL_datamart.csv
   # Variabel numerik yang diprofilkan (histogram + ringkasan)
   max_categories_plot: 12
   currency_divisor: 1000000     # tampilkan rupiah dalam juta
@@ -60,17 +64,22 @@ eda:
 # Pipeline 02 - preprocessing
 # ---------------------------------------------------------------------
 preprocessing:
-  input_file: icu_inacbg_raw.csv
+  input_file: icu_inacbg_REAL_datamart.csv
   output_file: analytic_cohort.csv
   min_age: 18
   min_icu_hours: 24
-  # Batas wajar variabel klinis; nilai di luar rentang -> dianggap salah input
+  # Batas wajar variabel klinis; nilai di luar rentang -> dianggap salah input.
+  # Kolom mentah (spo2, fio2, ...) dicek SEBELUM variabel turunan dihitung,
+  # kolom turunan (sf_ratio, pre_icu) sesudahnya.
   plausible_ranges:
     age: [18, 110]
+    jkn_class: [1, 3]            # data mart: kode 0 tak terdefinisi -> hilang
     map_lowest: [20, 140]
+    spo2_lowest: [50, 100]
+    fio2_lowest: [0.21, 1.0]
     sf_ratio_lowest: [40, 500]
     gcs_lowest: [3, 15]
-    creatinine_highest: [0.1, 20]
+    creatinine_highest: [0.1, 30]  # data nyata maks 22,2 (ESRD/AKI berat)
     pre_icu_los_hours: [0, 2160]
   outcome:
     ratio_col: claim_to_billing_ratio
@@ -87,8 +96,10 @@ feature_building:
   vif_threshold: 5.0
   # Fitur turunan yang dihitung (lihat features.py untuk definisinya)
   derived:
-    msofa_components: true      # skor komponen mSOFA (MAP, SF, GCS, kreatinin)
-    organ_support_count: true   # jumlah organ support 24 jam (0-3)
+    # false sesuai proposal §2.4.6: komponen mSOFA masuk sebagai variabel mentah,
+    # BUKAN skor agregat; jumlah organ support juga bukan bagian 14 prediktor.
+    msofa_components: false     # skor mSOFA total (MAP, SF, GCS, kreatinin)
+    organ_support_count: false  # jumlah organ support 24 jam (0-3)
     log_pre_icu: true           # log1p durasi pra-ICU (distribusi miring kanan)
     gcs_unassessable_flag: true # penanda "tidak dapat dinilai karena sedasi"
 
@@ -96,37 +107,58 @@ feature_building:
 # Pipeline 04 - training, evaluasi, interpretabilitas
 # ---------------------------------------------------------------------
 training:
+  # Proposal §3.10.4: 5-fold stratified CV diulang 10 kali (outer), tuning 3-fold
+  # (inner) dengan optimasi Bayesian Optuna; fold dikelompokkan per pasien.
   outer_folds: 5
+  outer_repeats: 10
   inner_folds: 3
+  n_trials: 30                  # jumlah percobaan Optuna (TPE) per tuning
+  n_imputations: 5              # §3.10.2: >=5 set MICE, prediksi dirata-rata
   scoring: roc_auc
-  # Validasi internal-eksternal: pembagian temporal sesuai proposal
+  scoring_regression: neg_root_mean_squared_error   # luaran sekunder log-rasio
+  # Validasi temporal = analisis sensitivitas, tidak dipakai memilih model
   temporal_split_date: "2026-01-01"
   auc_target: 0.75
-  n_jobs: -1
-  # Class weighting hanya diaktifkan bila kelas minoritas < ambang ini.
-  # Pada data seimbang, pembobotan justru merusak kalibrasi probabilitas.
-  class_weight_threshold: 0.35
+  n_jobs: -1                    # paralel antar-fold luar
+  n_boot: 1000                  # IK 95% bootstrap per pasien (>=1.000)
+  # Model UTAMA tanpa class weighting (§3.10.2). Class weighting + rekalibrasi
+  # dijalankan sebagai analisis sensitivitas karena prevalensi teramati >80%.
+  class_weight_sensitivity: true
+  complete_case_sensitivity: true
+  secondary_outcome: true       # regresi log(klaim/tagihan)
+  subgroups:                    # §3.10.2 evaluasi antarsubkelompok
+    sex: Jenis kelamin
+    age_group: Usia
+    jkn_class: Kelas rawat JKN
+    icu_admission_type: Tipe admisi ICU
+  # Ruang pencarian Optuna: [int, lo, hi] | [float, lo, hi] | [log, lo, hi] | [cat, [..]]
   models:
     xgboost:
       enabled: true
-      grid:
-        model__n_estimators: [200, 400]
-        model__max_depth: [3, 5]
-        model__learning_rate: [0.05, 0.1]
-        model__subsample: [0.8]
-        model__colsample_bytree: [0.8]
-        model__min_child_weight: [1, 5]
+      space:
+        model__n_estimators: [int, 100, 800]
+        model__max_depth: [int, 2, 6]
+        model__learning_rate: [log, 0.01, 0.3]
+        model__subsample: [float, 0.6, 1.0]
+        model__colsample_bytree: [float, 0.6, 1.0]
+        model__min_child_weight: [int, 1, 20]
+        model__reg_lambda: [log, 0.1, 20.0]
     random_forest:
       enabled: true
-      grid:
-        model__n_estimators: [300, 600]
-        model__max_depth: [null, 8]
-        model__min_samples_leaf: [1, 5]
+      space:
+        model__n_estimators: [cat, [300, 500]]
+        model__max_depth: [cat, [4, 6, 8, 12, null]]
+        model__min_samples_leaf: [int, 2, 30]
+        model__max_features: [cat, [sqrt, 0.3, 0.5, 0.7]]
     elastic_net_lr:
       enabled: true
-      grid:
-        model__C: [0.01, 0.1, 1.0, 10.0]
-        model__l1_ratio: [0.1, 0.5, 0.9]
+      space:
+        model__C: [log, 0.001, 10.0]
+        model__l1_ratio: [float, 0.0, 1.0]
+      # regresi (luaran sekunder): ElasticNet
+      space_regression:
+        model__alpha: [log, 0.0001, 1.0]
+        model__l1_ratio: [float, 0.05, 1.0]
 
 interpretability:
   shap_max_display: 15

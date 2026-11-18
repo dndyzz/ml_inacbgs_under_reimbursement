@@ -28,3 +28,14 @@ desktop.ini
 data_analysis/data/**/*_REAL*.csv
 data_analysis/data/**/*_RSCM*.csv
 data_analysis/data/**/real/
+
+# Data pasien nyata RSCM (aturan CLAUDE.md poin 3) — jangan pernah di-commit
+data_raw/
+spreadsheet.csv
+cohort_protokol.csv
+
+# Output EDA/model dari data RSCM nyata
+data_analysis/outputs_real/
+
+# Draf tesis (berisi hasil RSCM) — tidak untuk repo publik
+*.docx

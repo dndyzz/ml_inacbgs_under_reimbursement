@@ -68,8 +68,14 @@ def run(cfg=None, **overrides) -> dict:
     log.info("Data mentah: %s baris x %s kolom", *df.shape)
 
     # 1-2. turunan + pemeriksaan rentang
+    # rentang dicek dua kali: kolom mentah dulu (agar S/F tidak dihitung dari
+    # FiO2/SpO2 yang mustahil), lalu kolom turunan
+    raw_ranges = {k: v for k, v in pre["plausible_ranges"].items() if k in df}
+    df, rr_raw = cleaning.apply_range_checks(df, raw_ranges)
     df = cleaning.build_derived_columns(df)
-    df, range_report = cleaning.apply_range_checks(df, pre["plausible_ranges"])
+    derived_ranges = {k: v for k, v in pre["plausible_ranges"].items() if k not in raw_ranges}
+    df, rr_derived = cleaning.apply_range_checks(df, derived_ranges)
+    range_report = pd.concat([rr_raw, rr_derived], ignore_index=True)
     n_out_of_range = int(range_report["n_di_luar_batas"].sum())
     log.info("Nilai di luar batas wajar diubah menjadi hilang: %s", n_out_of_range)
 
